@@ -19,14 +19,17 @@
 
 package net.minecraftforge.fml.network;
 
+import net.minecraft.network.login.ServerLoginNetHandler;
+import com.google.common.collect.Multimap;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.PacketBuffer;
-import net.minecraft.network.NetHandlerLoginServer;
 import net.minecraft.util.ResourceLocation;
-import net.minecraft.util.text.TextComponentString;
+import net.minecraft.util.text.StringTextComponent;
 import net.minecraftforge.fml.config.ConfigTracker;
+import net.minecraftforge.fml.loading.AdvancedLogMessageAdapter;
 import net.minecraftforge.fml.network.simple.SimpleChannel;
 import net.minecraftforge.registries.ForgeRegistry;
+import net.minecraftforge.registries.GameData;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.Marker;
@@ -40,6 +43,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import static net.minecraftforge.registries.ForgeRegistry.REGISTRIES;
@@ -47,16 +52,16 @@ import static net.minecraftforge.registries.ForgeRegistry.REGISTRIES;
 /**
  * Instance responsible for handling the overall FML network handshake.
  *
- * <p>An instance is created during {@link net.minecraft.network.handshake.client.CPacketHandshake} handling, and attached
+ * <p>An instance is created during {@link net.minecraft.network.handshake.client.CHandshakePacket} handling, and attached
  * to the {@link NetworkManager#channel} via {@link FMLNetworkConstants#FML_HANDSHAKE_HANDLER}.
  *
  * <p>The {@link FMLNetworkConstants#handshakeChannel} is a {@link SimpleChannel} with standard messages flowing in both directions.
  *
- * <p>The {@link #loginWrapper} transforms these messages into {@link net.minecraft.network.login.client.CPacketCustomPayloadLogin}
- * and {@link net.minecraft.network.login.server.SPacketCustomPayloadLogin} compatible messages, by means of wrapping.
+ * <p>The {@link #loginWrapper} transforms these messages into {@link net.minecraft.network.login.client.CCustomPayloadLoginPacket}
+ * and {@link net.minecraft.network.login.server.SCustomPayloadLoginPacket} compatible messages, by means of wrapping.
  *
- * <p>The handshake is ticked {@link #tickLogin(NetworkManager)} from the {@link NetHandlerLoginServer#update()} method,
- * utilizing the {@link NetHandlerLoginServer.LoginState#NEGOTIATING} state, which is otherwise unused in vanilla code.
+ * <p>The handshake is ticked {@link #tickLogin(NetworkManager)} from the {@link ServerLoginNetHandler#update()} method,
+ * utilizing the {@link ServerLoginNetHandler.State#NEGOTIATING} state, which is otherwise unused in vanilla code.
  *
  * <p>During client to server initiation, on the <em>server</em>, the {@link NetworkEvent.GatherLoginPayloadsEvent} is fired,
  * which solicits all registered channels at the {@link NetworkRegistry} for any
@@ -64,7 +69,7 @@ import static net.minecraftforge.registries.ForgeRegistry.REGISTRIES;
  *
  * <p>The collected {@link net.minecraftforge.fml.network.NetworkRegistry.LoginPayload} are sent, one per tick, via
  * the {@link FMLLoginWrapper#wrapPacket(ResourceLocation, PacketBuffer)} mechanism to the incoming client connection. Each
- * packet is indexed via {@link net.minecraft.network.login.client.CPacketCustomPayloadLogin#transaction}, which is
+ * packet is indexed via {@link net.minecraft.network.login.client.CCustomPayloadLoginPacket#transaction}, which is
  * the only mechanism available for tracking request/response pairs.
  *
  * <p>Each packet sent from the server should be replied by the client, though not necessarily in sent order. The reply
@@ -84,7 +89,7 @@ public class FMLHandshakeHandler {
     }
 
     /**
-     * Create a new handshake instance. Called when connection is first created during the {@link net.minecraft.network.handshake.client.CPacketHandshake}
+     * Create a new handshake instance. Called when connection is first created during the {@link net.minecraft.network.handshake.client.CHandshakePacket}
      * handling.
      *
      * @param manager The network manager for this connection
@@ -114,11 +119,14 @@ public class FMLHandshakeHandler {
     {
         this.direction = side;
         this.manager = networkManager;
-        if (NetworkHooks.getConnectionType(()->this.manager)==ConnectionType.VANILLA) {
+        if (networkManager.isLocalChannel()) {
+            this.messageList = NetworkRegistry.gatherLoginPayloads(this.direction, true);
+            LOGGER.debug(FMLHSMARKER, "Starting local connection.");
+        } else if (NetworkHooks.getConnectionType(()->this.manager)==ConnectionType.VANILLA) {
             this.messageList = Collections.emptyList();
             LOGGER.debug(FMLHSMARKER, "Starting new vanilla network connection.");
         } else {
-            this.messageList = NetworkRegistry.gatherLoginPayloads(this.direction);
+            this.messageList = NetworkRegistry.gatherLoginPayloads(this.direction, false);
             LOGGER.debug(FMLHSMARKER, "Starting new modded network connection. Found {} messages to dispatch.", this.messageList.size());
         }
     }
@@ -130,7 +138,7 @@ public class FMLHandshakeHandler {
         c.get().setPacketHandled(true);
         if (!accepted) {
             LOGGER.error(FMLHSMARKER, "Terminating connection with server, mismatched mod list");
-            c.get().getNetworkManager().closeChannel(new TextComponentString("Connection closed - mismatched mod channel list"));
+            c.get().getNetworkManager().closeChannel(new StringTextComponent("Connection closed - mismatched mod channel list"));
             return;
         }
         FMLNetworkConstants.handshakeChannel.reply(new FMLHandshakeMessages.C2SModListReply(), c.get());
@@ -160,7 +168,7 @@ public class FMLHandshakeHandler {
         c.get().setPacketHandled(true);
         if (!accepted) {
             LOGGER.error(FMLHSMARKER, "Terminating connection with client, mismatched mod list");
-            c.get().getNetworkManager().closeChannel(new TextComponentString("Connection closed - mismatched mod channel list"));
+            c.get().getNetworkManager().closeChannel(new StringTextComponent("Connection closed - mismatched mod channel list"));
             return;
         }
         LOGGER.debug(FMLHSMARKER, "Accepted client connection mod list");
@@ -170,13 +178,48 @@ public class FMLHandshakeHandler {
         LOGGER.debug(FMLHSMARKER,"Received registry packet for {}", registryPacket.getRegistryName());
         this.registriesToReceive.remove(registryPacket.getRegistryName());
         this.registrySnapshots.put(registryPacket.getRegistryName(), registryPacket.getSnapshot());
-        contextSupplier.get().setPacketHandled(true);
-        FMLNetworkConstants.handshakeChannel.reply(new FMLHandshakeMessages.C2SAcknowledge(), contextSupplier.get());
 
+        boolean continueHandshake = true;
         if (this.registriesToReceive.isEmpty()) {
-          //TODO: @cpw injectSnapshot Needs to be on the world thread. And maybe block the network/login so we don't get world data before we finish?
-          registrySnapshots = null;
+            continueHandshake = handleRegistryLoading(contextSupplier);
         }
+        // The handshake reply isn't sent until we have processed the message
+        contextSupplier.get().setPacketHandled(true);
+        if (!continueHandshake) {
+            LOGGER.error(FMLHSMARKER, "Connection closed, not continuing handshake");
+        } else {
+            FMLNetworkConstants.handshakeChannel.reply(new FMLHandshakeMessages.C2SAcknowledge(), contextSupplier.get());
+        }
+    }
+
+    private boolean handleRegistryLoading(final Supplier<NetworkEvent.Context> contextSupplier) {
+        // We use a countdown latch to suspend the network thread pending the client thread processing the registry data
+        AtomicBoolean successfulConnection = new AtomicBoolean(false);
+        CountDownLatch block = new CountDownLatch(1);
+        contextSupplier.get().enqueueWork(() -> {
+            LOGGER.debug(FMLHSMARKER, "Injecting registry snapshot from server.");
+            final Multimap<ResourceLocation, ResourceLocation> missingData = GameData.injectSnapshot(registrySnapshots, false, false);
+            LOGGER.debug(FMLHSMARKER, "Snapshot injected.");
+            if (!missingData.isEmpty()) {
+                LOGGER.error(FMLHSMARKER, "Missing registry data for network connection:\n{}", new AdvancedLogMessageAdapter(sb->
+                        missingData.forEach((reg, entry)-> sb.append("\t").append(reg).append(": ").append(entry).append('\n'))));
+            }
+            successfulConnection.set(missingData.isEmpty());
+            block.countDown();
+        });
+        LOGGER.debug(FMLHSMARKER, "Waiting for registries to load.");
+        try {
+            block.await();
+        } catch (InterruptedException e) {
+            Thread.interrupted();
+        }
+        if (successfulConnection.get()) {
+            LOGGER.debug(FMLHSMARKER, "Registry load complete, continuing handshake.");
+        } else {
+            LOGGER.error(FMLHSMARKER, "Failed to load registry, closing connection.");
+            this.manager.closeChannel(new StringTextComponent("Failed to synchronize registry data from server, closing connection"));
+        }
+        return successfulConnection.get();
     }
 
     void handleClientAck(final FMLHandshakeMessages.C2SAcknowledge msg, final Supplier<NetworkEvent.Context> contextSupplier) {

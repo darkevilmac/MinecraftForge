@@ -53,7 +53,7 @@ import net.minecraftforge.common.model.animation.IAnimationStateMachine;
 public class ModelLoaderRegistry
 {
     private static final Logger LOGGER = LogManager.getLogger();
-    
+
     private static final Set<ICustomModelLoader> loaders = Sets.newHashSet();
     private static final Map<ResourceLocation, IUnbakedModel> cache = Maps.newHashMap();
     private static final Deque<ResourceLocation> loadingModels = Queues.newArrayDeque();
@@ -185,7 +185,7 @@ public class ModelLoaderRegistry
             }
         }
         cache.put(location, model);
-        for (ResourceLocation dep : model.getOverrideLocations())
+        for (ResourceLocation dep : model.getDependencies())
         {
             getModelOrMissing(dep);
         }

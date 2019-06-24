@@ -71,7 +71,7 @@ public class FMLDevClientLaunchProvider extends FMLCommonLaunchHandler implement
     public void configureTransformationClassLoader(final ITransformingClassLoaderBuilder builder)
     {
         super.configureTransformationClassLoader(builder);
-        builder.addTransformationPath(LibraryFinder.findJarPathFor("com/mojang/realmsclient/RealmsVersion.class", "realms"));
+        builder.addTransformationPath(LibraryFinder.findJarPathFor("com/mojang/realmsclient/plugin/RealmsPluginImpl.class", "realms"));
     }
 
     @Override
@@ -107,4 +107,10 @@ public class FMLDevClientLaunchProvider extends FMLCommonLaunchHandler implement
     @Override
     protected void validatePaths(final Path forgePath, final Path[] mcPaths, final String forgeVersion, final String mcVersion, final String mcpVersion) {
     }
+
+    @Override
+    protected String getNaming() {
+        return "mcp";
+    }
+
 }

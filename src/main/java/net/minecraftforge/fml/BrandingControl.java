@@ -21,12 +21,15 @@ package net.minecraftforge.fml;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import net.minecraftforge.versions.forge.ForgeVersion;
-import net.minecraftforge.versions.mcp.MCPVersion;
-
 import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.stream.IntStream;
+
+import net.minecraft.resources.IResourceManager;
+import net.minecraft.resources.IResourceManagerReloadListener;
+import net.minecraftforge.versions.forge.ForgeVersion;
+import net.minecraftforge.versions.mcp.MCPVersion;
+
 
 public class BrandingControl
 {
@@ -38,9 +41,9 @@ public class BrandingControl
         if (brandings == null)
         {
             ImmutableList.Builder<String> brd = ImmutableList.builder();
+            brd.add("Forge " + ForgeVersion.getVersion());
             brd.add("Minecraft " + MCPVersion.getMCVersion());
             brd.add("MCP " + MCPVersion.getMCPVersion());
-            brd.add("Forge " + ForgeVersion.getVersion());
             int tModCount = ModList.get().size();
             brd.add(ForgeI18n.parseMessage("fml.menu.loadingmods", tModCount));
             brandings = brd.build();
@@ -69,5 +72,14 @@ public class BrandingControl
 
     public static String getServerBranding() {
         return "forge";
+    }
+
+    public static IResourceManagerReloadListener resourceManagerReloadListener() {
+        return BrandingControl::onResourceManagerReload;
+    }
+
+    private static void onResourceManagerReload(IResourceManager resourceManager) {
+        brandings = null;
+        brandingsNoMC = null;
     }
 }

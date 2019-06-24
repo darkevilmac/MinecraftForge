@@ -22,9 +22,9 @@ package net.minecraftforge.client.model.pipeline;
 import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.renderer.vertex.VertexFormat;
-import net.minecraft.client.renderer.vertex.VertexFormatElement.EnumUsage;
+import net.minecraft.client.renderer.vertex.VertexFormatElement.Usage;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.EnumFacing;
+import net.minecraft.util.Direction;
 
 /**
  * Assumes VertexFormatElement is present in the BufferBuilder's vertex format.
@@ -32,16 +32,17 @@ import net.minecraft.util.EnumFacing;
 public class VertexBufferConsumer implements IVertexConsumer
 {
     private static final float[] dummyColor = new float[]{ 1, 1, 1, 1 };
-    private final BufferBuilder renderer;
-    private final int[] quadData;
-    private int v = 0;
-    private BlockPos offset = BlockPos.ORIGIN;
 
-    public VertexBufferConsumer(BufferBuilder renderer)
+    private BufferBuilder renderer;
+    private int[] quadData;
+    private int v = 0;
+    private BlockPos offset = BlockPos.ZERO;
+
+    public VertexBufferConsumer() {}
+
+    public VertexBufferConsumer(BufferBuilder buffer)
     {
-        super();
-        this.renderer = renderer;
-        quadData = new int[renderer.getVertexFormat().getSize()/* / 4 * 4 */];
+        setBuffer(buffer);
     }
 
     @Override
@@ -54,7 +55,7 @@ public class VertexBufferConsumer implements IVertexConsumer
     public void put(int e, float... data)
     {
         VertexFormat format = getVertexFormat();
-        if(renderer.isColorDisabled() && format.getElement(e).getUsage() == EnumUsage.COLOR)
+        if(renderer.isColorDisabled() && format.getElement(e).getUsage() == Usage.COLOR)
         {
             data = dummyColor;
         }
@@ -72,6 +73,20 @@ public class VertexBufferConsumer implements IVertexConsumer
         }
     }
 
+    private void checkVertexFormat()
+    {
+        if (quadData == null || renderer.getVertexFormat().getSize() != quadData.length)
+        {
+            quadData = new int[renderer.getVertexFormat().getSize()];
+        }
+    }
+
+    public void setBuffer(BufferBuilder buffer)
+    {
+        this.renderer = buffer;
+        checkVertexFormat();
+    }
+
     public void setOffset(BlockPos offset)
     {
         this.offset = new BlockPos(offset);
@@ -80,7 +95,7 @@ public class VertexBufferConsumer implements IVertexConsumer
     @Override
     public void setQuadTint(int tint) {}
     @Override
-    public void setQuadOrientation(EnumFacing orientation) {}
+    public void setQuadOrientation(Direction orientation) {}
     @Override
     public void setApplyDiffuseLighting(boolean diffuse) {}
     @Override

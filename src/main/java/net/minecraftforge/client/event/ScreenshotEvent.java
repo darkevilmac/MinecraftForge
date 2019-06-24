@@ -21,11 +21,10 @@ package net.minecraftforge.client.event;
 
 import net.minecraft.client.renderer.texture.NativeImage;
 import net.minecraft.util.text.ITextComponent;
-import net.minecraft.util.text.TextComponentString;
+import net.minecraft.util.text.StringTextComponent;
 import net.minecraftforge.eventbus.api.Cancelable;
 import net.minecraftforge.eventbus.api.Event;
 
-import java.awt.image.BufferedImage;
 import java.io.File;
 
 /**
@@ -34,14 +33,14 @@ import java.io.File;
  * This event is {@link Cancelable}
  *
  * {@link #screenshotFile} contains the file the screenshot will be/was saved to
- * {@link #image} contains the {@link BufferedImage} that will be saved
+ * {@link #image} contains the {@link NativeImage} that will be saved
  * {@link #resultMessage} contains the {@link ITextComponent} to be returned. If {@code null}, the default vanilla message will be used instead
  */
 @Cancelable
 public class ScreenshotEvent extends Event
 {
 
-    public static final ITextComponent DEFAULT_CANCEL_REASON = new TextComponentString("Screenshot canceled");
+    public static final ITextComponent DEFAULT_CANCEL_REASON = new StringTextComponent("Screenshot canceled");
 
     private NativeImage image;
     private File screenshotFile;

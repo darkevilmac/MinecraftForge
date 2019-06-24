@@ -22,10 +22,9 @@ package net.minecraftforge.common.capabilities;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
-
 import mcp.MethodsReturnNonnullByDefault;
-import net.minecraft.nbt.NBTTagCompound;
-import net.minecraft.util.EnumFacing;
+import net.minecraft.nbt.CompoundNBT;
+import net.minecraft.util.Direction;
 import net.minecraftforge.common.util.LazyOptional;
 import net.minecraftforge.event.ForgeEventFactory;
 
@@ -79,7 +78,7 @@ public abstract class CapabilityProvider<B extends CapabilityProvider<B>> implem
         }
     }
 
-    protected final @Nullable NBTTagCompound serializeCaps()
+    protected final @Nullable CompoundNBT serializeCaps()
     {
         final CapabilityDispatcher disp = getCapabilities();
         if (disp != null)
@@ -89,7 +88,7 @@ public abstract class CapabilityProvider<B extends CapabilityProvider<B>> implem
         return null;
     }
 
-    protected final void deserializeCaps(NBTTagCompound tag)
+    protected final void deserializeCaps(CompoundNBT tag)
     {
         final CapabilityDispatcher disp = getCapabilities();
         if (disp != null)
@@ -106,9 +105,14 @@ public abstract class CapabilityProvider<B extends CapabilityProvider<B>> implem
             disp.invalidate();
     }
 
+    protected void reviveCaps()
+    {
+        this.valid = true; //Stupid players don't copy the entity when transporting across worlds.
+    }
+
     @Override
     @Nonnull
-    public <T> LazyOptional<T> getCapability(@Nonnull Capability<T> cap, @Nullable EnumFacing side)
+    public <T> LazyOptional<T> getCapability(@Nonnull Capability<T> cap, @Nullable Direction side)
     {
         final CapabilityDispatcher disp = getCapabilities();
         return !valid || disp == null ? LazyOptional.empty() : disp.getCapability(cap, side);

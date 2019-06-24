@@ -21,6 +21,15 @@ pipeline {
         stage('fetch') {
             steps {
                 checkout scm
+            }
+        }
+        stage('notify_start') {
+            when {
+                not {
+                    changeRequest()
+                }
+            }
+            steps {
                 discordSend(
                     title: "${DISCORD_PREFIX} Started",
                     successful: true,
@@ -37,10 +46,15 @@ pipeline {
                     env.MYVERSION = sh(returnStdout: true, script: './gradlew :forge:properties -q | grep "version:" | awk \'{print $2}\'').trim()
                 }
             }
-            post {
-                success {
-                    writeChangelog(currentBuild, 'build/changelog.txt')
+        }
+        stage('changelog') {
+            when {
+                not {
+                    changeRequest()
                 }
+            }
+            steps {
+                writeChangelog(currentBuild, 'build/changelog.txt')
             }
         }
         stage('publish') {
@@ -57,12 +71,7 @@ pipeline {
                 KEYSTORE_STOREPASS = credentials('forge-jenkins-keystore-old-keypass')
             }
             steps {
-                cache(maxCacheSize: 250/*MB*/, caches: [
-                    [$class: 'ArbitraryFileCache', excludes: '', includes: 'output.txt', path: '${WORKSPACE}/projects/forge/build/extractRangeMap/'] //Cache the rangemap to help speed up builds
-                ]){
-                    sh './gradlew ${GRADLE_ARGS} :forge:publish -PforgeMavenUser=${FORGE_MAVEN_USR} -PforgeMavenPassword=${FORGE_MAVEN_PSW} -PkeystoreKeyPass=${KEYSTORE_KEYPASS} -PkeystoreStorePass=${KEYSTORE_STOREPASS} -Pkeystore=${KEYSTORE} -PcrowdinKey=${CROWDIN}'
-                }
-                //We're not testing anymore so don't use the test group
+                sh './gradlew ${GRADLE_ARGS} :forge:publish -PforgeMavenUser=${FORGE_MAVEN_USR} -PforgeMavenPassword=${FORGE_MAVEN_PSW} -PkeystoreKeyPass=${KEYSTORE_KEYPASS} -PkeystoreStorePass=${KEYSTORE_STOREPASS} -Pkeystore=${KEYSTORE} -PcrowdinKey=${CROWDIN}'
                 sh 'curl --user ${FORGE_MAVEN} http://files.minecraftforge.net/maven/manage/promote/latest/net.minecraftforge.forge/${MYVERSION}'
             }
         }
@@ -74,11 +83,7 @@ pipeline {
                 CROWDIN = credentials('forge-crowdin')
             }
             steps {
-                cache(maxCacheSize: 250/*MB*/, caches: [
-                    [$class: 'ArbitraryFileCache', excludes: '', includes: 'output.txt', path: '${WORKSPACE}/projects/forge/build/extractRangeMap/'] //Cache the rangemap to help speed up builds
-                ]){
-                    sh './gradlew ${GRADLE_ARGS} :forge:publish -PcrowdinKey=${CROWDIN}'
-                }
+                sh './gradlew ${GRADLE_ARGS} :forge:publish -PcrowdinKey=${CROWDIN}'
             }
         }
     }
@@ -89,14 +94,16 @@ pipeline {
                 //junit 'build/test-results/*/*.xml'
                 //jacoco sourcePattern: '**/src/*/java'
                 
-                discordSend(
-                    title: "${DISCORD_PREFIX} Finished ${currentBuild.currentResult}",
-                    description: '```\n' + getChanges(currentBuild) + '\n```',
-                    successful: currentBuild.resultIsBetterOrEqualTo("SUCCESS"),
-                    result: currentBuild.currentResult,
-                    thumbnail: JENKINS_HEAD,
-                    webhookURL: DISCORD_WEBHOOK
-                )
+                if (env.CHANGE_ID == null) { // This is unset for non-PRs
+                    discordSend(
+                        title: "${DISCORD_PREFIX} Finished ${currentBuild.currentResult}",
+                        description: '```\n' + getChanges(currentBuild) + '\n```',
+                        successful: currentBuild.resultIsBetterOrEqualTo("SUCCESS"),
+                        result: currentBuild.currentResult,
+                        thumbnail: JENKINS_HEAD,
+                        webhookURL: DISCORD_WEBHOOK
+                    )
+                }
             }
         }
     }

@@ -19,21 +19,21 @@
 
 package net.minecraftforge.client.model;
 
+import javax.annotation.Nullable;
 import javax.vecmath.Vector4f;
 
+import net.minecraft.client.renderer.model.*;
+import net.minecraft.client.renderer.texture.ISprite;
 import net.minecraftforge.versions.forge.ForgeVersion;
 
-import net.minecraft.client.renderer.model.BakedQuad;
-import net.minecraft.client.renderer.model.IBakedModel;
-import net.minecraft.client.renderer.model.IUnbakedModel;
 import net.minecraft.client.renderer.model.ItemCameraTransforms.TransformType;
-import net.minecraft.client.renderer.model.ItemOverrideList;
-import net.minecraft.client.renderer.model.ModelBlock;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.renderer.vertex.VertexFormat;
 import net.minecraft.resources.IResourceManager;
-import net.minecraft.util.EnumFacing;
+import net.minecraft.util.Direction;
 import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.client.model.pipeline.IVertexConsumer;
+import net.minecraftforge.client.model.pipeline.TRSRTransformer;
 import net.minecraftforge.client.model.pipeline.UnpackedBakedQuad;
 import net.minecraftforge.common.model.IModelState;
 import net.minecraftforge.common.model.TRSRTransformation;
@@ -54,8 +54,8 @@ public final class ItemLayerModel implements IUnbakedModel
 {
     public static final ItemLayerModel INSTANCE = new ItemLayerModel(ImmutableList.of());
 
-    private static final EnumFacing[] HORIZONTALS = {EnumFacing.UP, EnumFacing.DOWN};
-    private static final EnumFacing[] VERTICALS = {EnumFacing.WEST, EnumFacing.EAST};
+    private static final Direction[] HORIZONTALS = {Direction.UP, Direction.DOWN};
+    private static final Direction[] VERTICALS = {Direction.WEST, Direction.EAST};
 
     private final ImmutableList<ResourceLocation> textures;
     private final ItemOverrideList overrides;
@@ -71,12 +71,12 @@ public final class ItemLayerModel implements IUnbakedModel
         this.overrides = overrides;
     }
 
-    public ItemLayerModel(ModelBlock model)
+    public ItemLayerModel(ModelBakery bakery, BlockModel model, VertexFormat format)
     {
-        this(getTextures(model), model.getOverrides(model, ModelLoader.defaultModelGetter(), ModelLoader.defaultTextureGetter()));
+        this(getTextures(model), model.getOverrides(bakery, model, ModelLoader.defaultTextureGetter(), format));
     }
 
-    private static ImmutableList<ResourceLocation> getTextures(ModelBlock model)
+    private static ImmutableList<ResourceLocation> getTextures(BlockModel model)
     {
         ImmutableList.Builder<ResourceLocation> builder = ImmutableList.builder();
         for(int i = 0; model.isTexturePresent("layer" + i); i++)
@@ -93,7 +93,7 @@ public final class ItemLayerModel implements IUnbakedModel
     }
 
     @Override
-    public Collection<ResourceLocation> getOverrideLocations()
+    public Collection<ResourceLocation> getDependencies()
     {
         return Collections.emptyList();
     }
@@ -116,18 +116,21 @@ public final class ItemLayerModel implements IUnbakedModel
         return new ItemLayerModel(builder.build(), overrides);
     }
 
+    @Nullable
     @Override
-    public IBakedModel bake(Function<ResourceLocation, IUnbakedModel> modelGetter, Function<ResourceLocation, TextureAtlasSprite> bakedTextureGetter, IModelState state, boolean uvlock, VertexFormat format) {
+    public IBakedModel bake(ModelBakery bakery, Function<ResourceLocation, TextureAtlasSprite> spriteGetter, ISprite sprite, VertexFormat format)
+    {
         ImmutableList.Builder<BakedQuad> builder = ImmutableList.builder();
-        Optional<TRSRTransformation> transform = state.apply(Optional.empty());
+        Optional<TRSRTransformation> transform = sprite.getState().apply(Optional.empty());
+        boolean identity = !transform.isPresent() || transform.get().isIdentity();
         for(int i = 0; i < textures.size(); i++)
         {
-            TextureAtlasSprite sprite = bakedTextureGetter.apply(textures.get(i));
-            builder.addAll(getQuadsForSprite(i, sprite, format, transform));
+            TextureAtlasSprite tas = spriteGetter.apply(textures.get(i));
+            builder.addAll(getQuadsForSprite(i, tas, format, transform));
         }
-        TextureAtlasSprite particle = bakedTextureGetter.apply(textures.isEmpty() ? new ResourceLocation("missingno") : textures.get(0));
-        ImmutableMap<TransformType, TRSRTransformation> map = PerspectiveMapWrapper.getTransforms(state);
-        return new BakedItemModel(builder.build(), particle, map, overrides);
+        TextureAtlasSprite particle = spriteGetter.apply(textures.isEmpty() ? new ResourceLocation("missingno") : textures.get(0));
+        ImmutableMap<TransformType, TRSRTransformation> map = PerspectiveMapWrapper.getTransforms(sprite.getState());
+        return new BakedItemModel(builder.build(), particle, map, overrides, identity);
     }
 
     public static ImmutableList<BakedQuad> getQuadsForSprite(int tint, TextureAtlasSprite sprite, VertexFormat format, Optional<TRSRTransformation> transform)
@@ -160,19 +163,19 @@ public final class ItemLayerModel implements IUnbakedModel
 
                     if(ptu && !t) // left - transparent, right - opaque
                     {
-                        faceData.set(EnumFacing.WEST, u, v);
+                        faceData.set(Direction.WEST, u, v);
                     }
                     if(!ptu && t) // left - opaque, right - transparent
                     {
-                        faceData.set(EnumFacing.EAST, u-1, v);
+                        faceData.set(Direction.EAST, u-1, v);
                     }
                     if(ptv[u] && !t) // up - transparent, down - opaque
                     {
-                        faceData.set(EnumFacing.UP, u, v);
+                        faceData.set(Direction.UP, u, v);
                     }
                     if(!ptv[u] && t) // up - opaque, down - transparent
                     {
-                        faceData.set(EnumFacing.DOWN, u, v-1);
+                        faceData.set(Direction.DOWN, u, v-1);
                     }
 
                     ptu = t;
@@ -180,7 +183,7 @@ public final class ItemLayerModel implements IUnbakedModel
                 }
                 if(!ptu) // last - opaque
                 {
-                    faceData.set(EnumFacing.EAST, uMax-1, v);
+                    faceData.set(Direction.EAST, uMax-1, v);
                 }
             }
             // last line
@@ -188,13 +191,13 @@ public final class ItemLayerModel implements IUnbakedModel
             {
                 if(!ptv[u])
                 {
-                    faceData.set(EnumFacing.DOWN, u, vMax-1);
+                    faceData.set(Direction.DOWN, u, vMax-1);
                 }
             }
         }
 
         // horizontal quads
-        for (EnumFacing facing : HORIZONTALS)
+        for (Direction facing : HORIZONTALS)
         {
             for (int v = 0; v < vMax; v++)
             {
@@ -220,7 +223,7 @@ public final class ItemLayerModel implements IUnbakedModel
                         if (building && !face) // finish current quad
                         {
                             // make quad [uStart, u]
-                            int off = facing == EnumFacing.DOWN ? 1 : 0;
+                            int off = facing == Direction.DOWN ? 1 : 0;
                             builder.add(buildSideQuad(format, transform, facing, tint, sprite, uStart, v+off, u-uStart));
                             building = false;
                         }
@@ -234,14 +237,14 @@ public final class ItemLayerModel implements IUnbakedModel
                 if (building) // build remaining quad
                 {
                     // make quad [uStart, uEnd]
-                    int off = facing == EnumFacing.DOWN ? 1 : 0;
+                    int off = facing == Direction.DOWN ? 1 : 0;
                     builder.add(buildSideQuad(format, transform, facing, tint, sprite, uStart, v+off, uEnd-uStart));
                 }
             }
         }
 
         // vertical quads
-        for (EnumFacing facing : VERTICALS)
+        for (Direction facing : VERTICALS)
         {
             for (int u = 0; u < uMax; u++)
             {
@@ -267,7 +270,7 @@ public final class ItemLayerModel implements IUnbakedModel
                         if (building && !face) // finish current quad
                         {
                             // make quad [vStart, v]
-                            int off = facing == EnumFacing.EAST ? 1 : 0;
+                            int off = facing == Direction.EAST ? 1 : 0;
                             builder.add(buildSideQuad(format, transform, facing, tint, sprite, u+off, vStart, v-vStart));
                             building = false;
                         }
@@ -281,21 +284,21 @@ public final class ItemLayerModel implements IUnbakedModel
                 if (building) // build remaining quad
                 {
                     // make quad [vStart, vEnd]
-                    int off = facing == EnumFacing.EAST ? 1 : 0;
+                    int off = facing == Direction.EAST ? 1 : 0;
                     builder.add(buildSideQuad(format, transform, facing, tint, sprite, u+off, vStart, vEnd-vStart));
                 }
             }
         }
 
         // front
-        builder.add(buildQuad(format, transform, EnumFacing.NORTH, sprite, tint,
+        builder.add(buildQuad(format, transform, Direction.NORTH, sprite, tint,
             0, 0, 7.5f / 16f, sprite.getMinU(), sprite.getMaxV(),
             0, 1, 7.5f / 16f, sprite.getMinU(), sprite.getMinV(),
             1, 1, 7.5f / 16f, sprite.getMaxU(), sprite.getMinV(),
             1, 0, 7.5f / 16f, sprite.getMaxU(), sprite.getMaxV()
         ));
         // back
-        builder.add(buildQuad(format, transform, EnumFacing.SOUTH, sprite, tint,
+        builder.add(buildQuad(format, transform, Direction.SOUTH, sprite, tint,
             0, 0, 8.5f / 16f, sprite.getMinU(), sprite.getMaxV(),
             1, 0, 8.5f / 16f, sprite.getMaxU(), sprite.getMaxV(),
             1, 1, 8.5f / 16f, sprite.getMaxU(), sprite.getMinV(),
@@ -307,7 +310,7 @@ public final class ItemLayerModel implements IUnbakedModel
 
     private static class FaceData
     {
-        private final EnumMap<EnumFacing, BitSet> data = new EnumMap<>(EnumFacing.class);
+        private final EnumMap<Direction, BitSet> data = new EnumMap<>(Direction.class);
 
         private final int vMax;
 
@@ -315,18 +318,18 @@ public final class ItemLayerModel implements IUnbakedModel
         {
             this.vMax = vMax;
 
-            data.put(EnumFacing.WEST, new BitSet(uMax * vMax));
-            data.put(EnumFacing.EAST, new BitSet(uMax * vMax));
-            data.put(EnumFacing.UP,   new BitSet(uMax * vMax));
-            data.put(EnumFacing.DOWN, new BitSet(uMax * vMax));
+            data.put(Direction.WEST, new BitSet(uMax * vMax));
+            data.put(Direction.EAST, new BitSet(uMax * vMax));
+            data.put(Direction.UP,   new BitSet(uMax * vMax));
+            data.put(Direction.DOWN, new BitSet(uMax * vMax));
         }
 
-        public void set(EnumFacing facing, int u, int v)
+        public void set(Direction facing, int u, int v)
         {
             data.get(facing).set(getIndex(u, v));
         }
 
-        public boolean get(EnumFacing facing, int u, int v)
+        public boolean get(Direction facing, int u, int v)
         {
             return data.get(facing).get(getIndex(u, v));
         }
@@ -337,7 +340,7 @@ public final class ItemLayerModel implements IUnbakedModel
         }
     }
 
-    private static BakedQuad buildSideQuad(VertexFormat format, Optional<TRSRTransformation> transform, EnumFacing side, int tint, TextureAtlasSprite sprite, int u, int v, int size)
+    private static BakedQuad buildSideQuad(VertexFormat format, Optional<TRSRTransformation> transform, Direction side, int tint, TextureAtlasSprite sprite, int u, int v, int size)
     {
         final float eps = 1e-2f;
 
@@ -384,65 +387,63 @@ public final class ItemLayerModel implements IUnbakedModel
         );
     }
 
-    private static EnumFacing remap(EnumFacing side)
+    private static Direction remap(Direction side)
     {
         // getOpposite is related to the swapping of V direction
-        return side.getAxis() == EnumFacing.Axis.Y ? side.getOpposite() : side;
+        return side.getAxis() == Direction.Axis.Y ? side.getOpposite() : side;
     }
 
     private static BakedQuad buildQuad(
-        VertexFormat format, Optional<TRSRTransformation> transform, EnumFacing side, TextureAtlasSprite sprite, int tint,
+        VertexFormat format, Optional<TRSRTransformation> transform, Direction side, TextureAtlasSprite sprite, int tint,
         float x0, float y0, float z0, float u0, float v0,
         float x1, float y1, float z1, float u1, float v1,
         float x2, float y2, float z2, float u2, float v2,
         float x3, float y3, float z3, float u3, float v3)
     {
         UnpackedBakedQuad.Builder builder = new UnpackedBakedQuad.Builder(format);
+
         builder.setQuadTint(tint);
         builder.setQuadOrientation(side);
         builder.setTexture(sprite);
-        putVertex(builder, format, transform, side, x0, y0, z0, u0, v0);
-        putVertex(builder, format, transform, side, x1, y1, z1, u1, v1);
-        putVertex(builder, format, transform, side, x2, y2, z2, u2, v2);
-        putVertex(builder, format, transform, side, x3, y3, z3, u3, v3);
+
+        boolean hasTransform = transform.isPresent() && !transform.get().isIdentity();
+        IVertexConsumer consumer = hasTransform ? new TRSRTransformer(builder, transform.get()) : builder;
+
+        putVertex(consumer, format, side, x0, y0, z0, u0, v0);
+        putVertex(consumer, format, side, x1, y1, z1, u1, v1);
+        putVertex(consumer, format, side, x2, y2, z2, u2, v2);
+        putVertex(consumer, format, side, x3, y3, z3, u3, v3);
+
         return builder.build();
     }
 
-    private static void putVertex(UnpackedBakedQuad.Builder builder, VertexFormat format, Optional<TRSRTransformation> transform, EnumFacing side, float x, float y, float z, float u, float v)
+    private static void putVertex(IVertexConsumer consumer, VertexFormat format, Direction side, float x, float y, float z, float u, float v)
     {
-        Vector4f vec = new Vector4f();
         for(int e = 0; e < format.getElementCount(); e++)
         {
             switch(format.getElement(e).getUsage())
             {
             case POSITION:
-                if(transform.isPresent())
-                {
-                    vec.x = x;
-                    vec.y = y;
-                    vec.z = z;
-                    vec.w = 1;
-                    transform.get().getMatrixVec().transform(vec);
-                    builder.put(e, vec.x, vec.y, vec.z, vec.w);
-                }
-                else
-                {
-                    builder.put(e, x, y, z, 1);
-                }
+                consumer.put(e, x, y, z, 1f);
                 break;
             case COLOR:
-                builder.put(e, 1f, 1f, 1f, 1f);
+                consumer.put(e, 1f, 1f, 1f, 1f);
                 break;
-            case UV: if(format.getElement(e).getIndex() == 0)
-            {
-                builder.put(e, u, v, 0f, 1f);
-                break;
-            }
             case NORMAL:
-                builder.put(e, (float)side.getXOffset(), (float)side.getYOffset(), (float)side.getZOffset(), 0f);
+                float offX = (float) side.getXOffset();
+                float offY = (float) side.getYOffset();
+                float offZ = (float) side.getZOffset();
+                consumer.put(e, offX, offY, offZ, 0f);
                 break;
+            case UV:
+                if(format.getElement(e).getIndex() == 0)
+                {
+                    consumer.put(e, u, v, 0f, 1f);
+                    break;
+                }
+                // else fallthrough to default
             default:
-                builder.put(e);
+                consumer.put(e);
                 break;
             }
         }

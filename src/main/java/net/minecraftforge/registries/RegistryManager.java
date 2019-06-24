@@ -19,6 +19,9 @@
 
 package net.minecraftforge.registries;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,6 +50,8 @@ public class RegistryManager
     BiMap<ResourceLocation, ForgeRegistry<? extends IForgeRegistryEntry<?>>> registries = HashBiMap.create();
     private BiMap<Class<? extends IForgeRegistryEntry<?>>, ResourceLocation> superTypes = HashBiMap.create();
     private Set<ResourceLocation> persisted = Sets.newHashSet();
+    private Set<ResourceLocation> synced = Sets.newHashSet();
+    private Map<ResourceLocation, ResourceLocation> legacyNames = new HashMap<>();
     private final String name;
 
     public RegistryManager(String name)
@@ -80,6 +85,19 @@ public class RegistryManager
     {
         return this.registries.inverse().get(reg);
     }
+    
+    public <V extends IForgeRegistryEntry<V>> ResourceLocation updateLegacyName(ResourceLocation legacyName)
+    {
+        while (getRegistry(legacyName) == null)
+        {
+            legacyName = legacyNames.get(legacyName);
+            if (legacyName == null)
+            {
+                return null;
+            }
+        }
+        return legacyName;
+    }
 
     public <V extends IForgeRegistryEntry<V>> ForgeRegistry<V> getRegistry(ResourceLocation key, RegistryManager other)
     {
@@ -92,6 +110,11 @@ public class RegistryManager
             this.superTypes.put(ot.getRegistrySuperType(), key);
             if (other.persisted.contains(key))
                 this.persisted.add(key);
+            if (other.synced.contains(key))
+                this.synced.add(key);
+            other.legacyNames.entrySet().stream()
+                 .filter(e -> e.getValue().equals(key))
+                 .forEach(e -> addLegacyName(e.getKey(), e.getValue()));
         }
         return getRegistry(key);
     }
@@ -113,7 +136,20 @@ public class RegistryManager
         superTypes.put(builder.getType(), name);
         if (builder.getSaveToDisc())
             this.persisted.add(name);
+        if (builder.getSync())
+            this.synced.add(name);
+        for (ResourceLocation legacyName : builder.getLegacyNames())
+            addLegacyName(legacyName, name);
         return getRegistry(name);
+    }
+    
+    private void addLegacyName(ResourceLocation legacyName, ResourceLocation name)
+    {
+        if (this.legacyNames.containsKey(legacyName))
+        {
+            throw new IllegalArgumentException("Legacy name conflict for registry " + name + ", upgrade path must be linear: " + legacyName);
+        }
+        this.legacyNames.put(legacyName, name);
     }
 
     private void findSuperTypes(Class<?> type, Set<Class<?>> types)
@@ -133,7 +169,7 @@ public class RegistryManager
     public Map<ResourceLocation, Snapshot> takeSnapshot(boolean savingToDisc)
     {
         Map<ResourceLocation, Snapshot> ret = Maps.newHashMap();
-        Set<ResourceLocation> keys = savingToDisc ? this.persisted : this.registries.keySet();
+        Set<ResourceLocation> keys = savingToDisc ? this.persisted : this.synced;
         keys.forEach(name -> ret.put(name, getRegistry(name).makeSnapshot()));
         return ret;
     }
@@ -142,19 +178,22 @@ public class RegistryManager
     public void clean()
     {
         this.persisted.clear();
+        this.synced.clear();
         this.registries.clear();
         this.superTypes.clear();
     }
 
-    public static List<Pair<String, FMLHandshakeMessages.S2CRegistry>> generateRegistryPackets()
+    public static List<Pair<String, FMLHandshakeMessages.S2CRegistry>> generateRegistryPackets(boolean isLocal)
     {
-        return ACTIVE.takeSnapshot(false).entrySet().stream().
+        return !isLocal ? ACTIVE.takeSnapshot(false).entrySet().stream().
                 map(e->Pair.of("Registry " + e.getKey(), new FMLHandshakeMessages.S2CRegistry(e.getKey(), e.getValue()))).
-                collect(Collectors.toList());
+                collect(Collectors.toList()) : Collections.emptyList();
     }
 
-    public static List<ResourceLocation> registryNames()
+    public static List<ResourceLocation> getRegistryNamesForSyncToClient()
     {
-        return ACTIVE.registries.entrySet().stream().map(Map.Entry::getKey).collect(Collectors.toList());
+        return ACTIVE.registries.keySet().stream().
+                filter(resloc -> ACTIVE.synced.contains(resloc)).
+                collect(Collectors.toList());
     }
 }

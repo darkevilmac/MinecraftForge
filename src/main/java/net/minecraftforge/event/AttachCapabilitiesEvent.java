@@ -22,6 +22,12 @@ package net.minecraftforge.event;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.common.capabilities.ICapabilityProvider;
+import net.minecraftforge.eventbus.api.GenericEvent;
+
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -82,9 +88,8 @@ public class AttachCapabilitiesEvent<T> extends GenericEvent<T>
         return view;
     }
 
-
     /**
-     * Adds a callback that is fired when the attacked object is invalidated.
+     * Adds a callback that is fired when the attached object is invalidated.
      * Such as a Entity/TileEntity being removed from world.
      * All attached providers should invalidate all of their held capability instances.
      */

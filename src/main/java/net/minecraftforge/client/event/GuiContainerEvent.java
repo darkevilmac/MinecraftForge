@@ -19,7 +19,7 @@
 
 package net.minecraftforge.client.event;
 
-import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.gui.screen.inventory.ContainerScreen;
 import net.minecraftforge.eventbus.api.Event;
 
 /**
@@ -28,14 +28,14 @@ import net.minecraftforge.eventbus.api.Event;
 public class GuiContainerEvent extends Event
 {
 
-    private final GuiContainer guiContainer;
+    private final ContainerScreen guiContainer;
 
-    public GuiContainerEvent(GuiContainer guiContainer)
+    public GuiContainerEvent(ContainerScreen guiContainer)
     {
         this.guiContainer = guiContainer;
     }
 
-    public GuiContainer getGuiContainer()
+    public ContainerScreen getGuiContainer()
     {
         return guiContainer;
     }
@@ -58,7 +58,41 @@ public class GuiContainerEvent extends Event
          * @param mouseX       The current X position of the players mouse.
          * @param mouseY       The current Y position of the players mouse.
          */
-        public DrawForeground(GuiContainer guiContainer, int mouseX, int mouseY)
+        public DrawForeground(ContainerScreen guiContainer, int mouseX, int mouseY)
+        {
+            super(guiContainer);
+            this.mouseX = mouseX;
+            this.mouseY = mouseY;
+        }
+
+        public int getMouseX()
+        {
+            return mouseX;
+        }
+
+        public int getMouseY()
+        {
+            return mouseY;
+        }
+    }
+    
+    /**
+     * This event is fired directly after the GuiContainer has draw any background elements,
+     * This is useful for drawing new background elements.
+     */
+    public static class DrawBackground extends GuiContainerEvent
+    {
+        private final int mouseX;
+        private final int mouseY;
+
+        /**
+         * Called directly after the GuiContainer has drawn any background elements.
+         *
+         * @param guiContainer The container.
+         * @param mouseX       The current X position of the players mouse.
+         * @param mouseY       The current Y position of the players mouse.
+         */
+        public DrawBackground(ContainerScreen guiContainer, int mouseX, int mouseY)
         {
             super(guiContainer);
             this.mouseX = mouseX;
